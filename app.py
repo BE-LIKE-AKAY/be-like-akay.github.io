@@ -1,84 +1,52 @@
-from flask import Flask, request, render_template, jsonify
+from flask import Flask, request, jsonify
 import os
 import json
-import datetime
-import requests
+from datetime import datetime
 
 app = Flask(__name__)
-DATA_FOLDER = "data"  # Folder containing text files
+
+DATA_FOLDER = "data"  # Folder containing your text files
 LOG_FILE = "search_log.json"
-
-# Function to get user details
-def get_user_details(request):
-    ip = request.remote_addr
-    screen_res = request.headers.get("Screen-Resolution", "Unknown")
-    cookies = request.cookies.to_dict()
-    
-    # Get location details
-    try:
-        response = requests.get(f"https://ipinfo.io/{ip}/json")
-        location_data = response.json()
-    except:
-        location_data = {}
-    
-    return {
-        "ip": ip,
-        "screen_resolution": screen_res,
-        "location": location_data.get("city", "Unknown") + ", " + location_data.get("region", "Unknown"),
-        "isp": location_data.get("org", "Unknown"),
-        "network_type": "Unknown",  # Requires frontend detection
-        "connection_speed": "Unknown",  # Requires frontend detection
-        "cookies": cookies
-    }
-
-# Function to search keyword in files
-def search_files(keyword):
-    results = []
-    for filename in os.listdir(DATA_FOLDER):
-        if filename.endswith(".txt"):
-            filepath = os.path.join(DATA_FOLDER, filename)
-            with open(filepath, "r", encoding="utf-8") as file:
-                lines = file.readlines()
-                for i, line in enumerate(lines):
-                    if keyword.lower() in line.lower():
-                        results.append({"file": filename, "line": i+1, "content": line.strip()})
-    return results
-
-# Function to log search activity
-def log_search(user_data, keyword):
-    log_entry = {
-        **user_data,
-        "keyword": keyword,
-        "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    }
-    
-    if os.path.exists(LOG_FILE):
-        with open(LOG_FILE, "r", encoding="utf-8") as log_file:
-            logs = json.load(log_file)
-    else:
-        logs = []
-    
-    logs.append(log_entry)
-    
-    with open(LOG_FILE, "w", encoding="utf-8") as log_file:
-        json.dump(logs, log_file, indent=4)
-
-@app.route('/')
-def index():
-    return render_template("index.html")
 
 @app.route('/search', methods=['POST'])
 def search():
-    keyword = request.form.get("keyword")
-    if not keyword:
-        return jsonify({"error": "Keyword is required"}), 400
-    
-    user_data = get_user_details(request)
-    results = search_files(keyword)
-    log_search(user_data, keyword)
-    
+    keyword = request.form.get('keyword')
+    results = []
+    for filename in os.listdir(DATA_FOLDER):
+        if filename.endswith(".txt"):  # Only search .txt files
+            filepath = os.path.join(DATA_FOLDER, filename)
+            try:
+                with open(filepath, 'r', encoding='utf-8') as f: # Handle potential encoding issues
+                    for i, line in enumerate(f, 1):
+                        if keyword.lower() in line.lower():
+                            results.append({"file": filename, "line": i, "content": line.strip()})
+            except Exception as e:
+                print(f"Error reading file {filename}: {e}") # Log file reading errors
+
+    log_search(keyword)
     return jsonify({"results": results})
 
+def log_search(keyword):
+    
+
+    log_entry = {
+        "ip": request.remote_addr,
+        "keyword": keyword,
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+
+        # Add more details as needed (screen resolution, etc. - these are harder to get from the backend reliably)
+    }
+
+    try:
+        with open(LOG_FILE, 'r') as f:
+            logs = json.load(f)
+    except FileNotFoundError:
+        logs = []
+
+    logs.append(log_entry)
+
+    with open(LOG_FILE, 'w') as f:
+        json.dump(logs, f, indent=4)
+
 if __name__ == '__main__':
-    os.makedirs(DATA_FOLDER, exist_ok=True)
-    app.run(debug=True, host="0.0.0.0")
+    app.run(debug=True, host="0.0.0.0", port=5000)  # For local testing
